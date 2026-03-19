@@ -224,6 +224,13 @@ enum {
 #define CPER_SEC_DMAR_IOMMU						\
 	GUID_INIT(0x036F84E1, 0x7F37, 0x428c, 0xA7, 0x9E, 0x57, 0x5F,	\
 		  0xDF, 0xAA, 0x84, 0xEC)
+/*
+ * Huawei vendor firmware may report TS core errors through GHES using this
+ * private section GUID. Keep it available for the downstream fpdc parser.
+ */
+#define CPER_SEC_TS_CORE						\
+	GUID_INIT(0xeb4c71f8, 0xbc76, 0x4c46, 0xbd, 0x09, 0xd0, 0xd3,	\
+		  0x45, 0x00, 0x5a, 0x92)
 
 #define CPER_PROC_VALID_TYPE			0x0001
 #define CPER_PROC_VALID_ISA			0x0002

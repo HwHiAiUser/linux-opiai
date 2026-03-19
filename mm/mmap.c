@@ -562,6 +562,7 @@ unsigned long do_mmap(struct file *file, unsigned long addr,
 		*populate = len;
 	return addr;
 }
+EXPORT_SYMBOL(do_mmap);
 
 unsigned long ksys_mmap_pgoff(unsigned long addr, unsigned long len,
 			      unsigned long prot, unsigned long flags,
@@ -1064,6 +1065,7 @@ int do_munmap(struct mm_struct *mm, unsigned long start, size_t len,
 
 	return do_vmi_munmap(&vmi, mm, start, len, uf, false);
 }
+EXPORT_SYMBOL(do_munmap);
 
 int vm_munmap(unsigned long start, size_t len)
 {

@@ -43,6 +43,20 @@ static DEFINE_MUTEX(hnae3_common_lock);
 /* ensure the drivers being unloaded one by one */
 static DEFINE_MUTEX(hnae3_unload_lock);
 
+struct list_head *hnae3_get_ae_dev_list(void)
+{
+	mutex_lock(&hnae3_common_lock);
+
+	return &hnae3_ae_dev_list;
+}
+EXPORT_SYMBOL(hnae3_get_ae_dev_list);
+
+void hnae3_put_ae_dev_list(void)
+{
+	mutex_unlock(&hnae3_common_lock);
+}
+EXPORT_SYMBOL(hnae3_put_ae_dev_list);
+
 void hnae3_acquire_unload_lock(void)
 {
 	mutex_lock(&hnae3_unload_lock);

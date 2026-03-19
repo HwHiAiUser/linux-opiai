@@ -37,6 +37,15 @@ include $(srctree)/scripts/Makefile.compiler
 include $(kbuild-file)
 include $(srctree)/scripts/Makefile.lib
 
+# Keep legacy out-of-tree vendor modules building on newer kbuild.
+# Older trees rely heavily on EXTRA_CFLAGS for both local and subdir flags.
+subdir-asflags-y += $(EXTRA_AFLAGS)
+subdir-ccflags-y += $(EXTRA_CFLAGS)
+ifneq ($(KBUILD_EXTMOD),)
+ccflags-y := $(filter-out -Werror,$(ccflags-y))
+subdir-ccflags-y := $(filter-out -Werror,$(subdir-ccflags-y))
+endif
+
 # flags that take effect in current and sub directories
 KBUILD_AFLAGS += $(subdir-asflags-y)
 KBUILD_CFLAGS += $(subdir-ccflags-y)

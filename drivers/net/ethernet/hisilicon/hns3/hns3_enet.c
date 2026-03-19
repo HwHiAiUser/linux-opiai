@@ -5360,7 +5360,7 @@ static void hns3_state_uninit(struct hnae3_handle *handle)
 	clear_bit(HNS3_NIC_STATE_INITED, &priv->state);
 }
 
-static int hns3_client_init(struct hnae3_handle *handle)
+int hns3_client_init(struct hnae3_handle *handle)
 {
 	struct pci_dev *pdev = handle->pdev;
 	struct hnae3_ae_dev *ae_dev = pci_get_drvdata(pdev);
@@ -5502,9 +5502,13 @@ out_get_ring_cfg:
 	free_netdev(netdev);
 	return ret;
 }
+EXPORT_SYMBOL(hns3_client_init);
 
-static void hns3_client_uninit(struct hnae3_handle *handle, bool reset)
+void hns3_client_uninit(struct hnae3_handle *handle, bool reset)
 {
+	if (!handle || !handle->kinfo.netdev)
+		return;
+
 	struct net_device *netdev = handle->kinfo.netdev;
 	struct hns3_nic_priv *priv = netdev_priv(netdev);
 
@@ -5538,8 +5542,9 @@ out_netdev_free:
 	hns3_dbg_uninit(handle);
 	free_netdev(netdev);
 }
+EXPORT_SYMBOL(hns3_client_uninit);
 
-static void hns3_link_status_change(struct hnae3_handle *handle, bool linkup)
+void hns3_link_status_change(struct hnae3_handle *handle, bool linkup)
 {
 	struct net_device *netdev = handle->kinfo.netdev;
 
@@ -5558,6 +5563,7 @@ static void hns3_link_status_change(struct hnae3_handle *handle, bool linkup)
 			netdev_info(netdev, "link down\n");
 	}
 }
+EXPORT_SYMBOL(hns3_link_status_change);
 
 static void hns3_clear_tx_ring(struct hns3_enet_ring *ring)
 {
@@ -5852,6 +5858,7 @@ int hns3_reset_notify(struct hnae3_handle *handle,
 
 	return ret;
 }
+EXPORT_SYMBOL(hns3_reset_notify);
 
 static int hns3_change_channels(struct hnae3_handle *handle, u32 new_tqp_num,
 				bool rxfh_configured)
@@ -6005,8 +6012,8 @@ static const struct hns3_hw_error_info hns3_hw_err[] = {
 	  .msg = "ROCEE AXI RESP error" },
 };
 
-static void hns3_process_hw_error(struct hnae3_handle *handle,
-				  enum hnae3_hw_error_type type)
+void hns3_process_hw_error(struct hnae3_handle *handle,
+			  enum hnae3_hw_error_type type)
 {
 	u32 i;
 
@@ -6018,6 +6025,7 @@ static void hns3_process_hw_error(struct hnae3_handle *handle,
 		}
 	}
 }
+EXPORT_SYMBOL(hns3_process_hw_error);
 
 static const struct hnae3_client_ops client_ops = {
 	.init_instance = hns3_client_init,

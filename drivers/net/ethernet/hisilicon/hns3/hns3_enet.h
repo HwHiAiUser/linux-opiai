@@ -737,8 +737,13 @@ void hns3_set_vector_coalesce_tx_ql(struct hns3_enet_tqp_vector *tqp_vector,
 				    u32 ql_value);
 
 void hns3_request_update_promisc_mode(struct hnae3_handle *handle);
+int hns3_client_init(struct hnae3_handle *handle);
+void hns3_client_uninit(struct hnae3_handle *handle, bool reset);
+void hns3_link_status_change(struct hnae3_handle *handle, bool linkup);
 int hns3_reset_notify(struct hnae3_handle *handle,
 		      enum hnae3_reset_notify_type type);
+void hns3_process_hw_error(struct hnae3_handle *handle,
+			   enum hnae3_hw_error_type type);
 
 #ifdef CONFIG_HNS3_DCB
 void hns3_dcbnl_setup(struct hnae3_handle *handle);

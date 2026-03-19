@@ -35,6 +35,8 @@
 #include <net/pkt_cls.h>
 #include <net/pkt_sched.h>
 
+struct platform_device;
+
 #define HNAE3_MOD_VERSION "1.0"
 
 #define HNAE3_MIN_VECTOR_NUM	2 /* first one for misc, another for IO */
@@ -75,6 +77,9 @@
 
 #define hnae3_dev_dcb_supported(hdev) \
 	hnae3_get_bit((hdev)->ae_dev->flag, HNAE3_DEV_SUPPORT_DCB_B)
+
+#define hnae3_dev_fd_supported(hdev) \
+	hnae3_ae_dev_fd_supported((hdev)->ae_dev)
 
 enum HNAE3_DEV_CAP_BITS {
 	HNAE3_DEV_SUPPORT_FD_B,
@@ -194,6 +199,10 @@ enum HNAE3_PF_CAP_BITS {
 	((ring)->p = ((ring)->p - 1 + (ring)->desc_num) % (ring)->desc_num)
 
 struct hnae3_handle;
+struct list_head;
+
+struct list_head *hnae3_get_ae_dev_list(void);
+void hnae3_put_ae_dev_list(void);
 
 struct hnae3_queue {
 	void __iomem *io_base;
@@ -325,6 +334,8 @@ enum hnae3_dbg_cmd {
 	HNAE3_DBG_CMD_REG_TQP,
 	HNAE3_DBG_CMD_REG_MAC,
 	HNAE3_DBG_CMD_REG_DCB,
+	HNAE3_DBG_CMD_REG_PA,
+	HNAE3_DBG_CMD_REG_TPU,
 	HNAE3_DBG_CMD_VLAN_CONFIG,
 	HNAE3_DBG_CMD_QUEUE_MAP,
 	HNAE3_DBG_CMD_RX_QUEUE_INFO,
@@ -430,6 +441,7 @@ struct hnae3_client {
 #define HNAE3_DEV_CAPS_MAX_NUM	96
 struct hnae3_ae_dev {
 	struct pci_dev *pdev;
+	struct platform_device *plfdev;
 	const struct hnae3_ae_ops *ops;
 	struct list_head node;
 	u32 flag;
@@ -608,6 +620,7 @@ struct hnae3_ae_ops {
 	void (*reset_prepare)(struct hnae3_ae_dev *ae_dev,
 			      enum hnae3_reset_type rst_type);
 	void (*reset_done)(struct hnae3_ae_dev *ae_dev);
+	bool (*reset_end)(struct hnae3_handle *handle, bool requested);
 	int (*init_client_instance)(struct hnae3_client *client,
 				    struct hnae3_ae_dev *ae_dev);
 	void (*uninit_client_instance)(struct hnae3_client *client,
@@ -809,6 +822,8 @@ struct hnae3_ae_ops {
 	int (*hwtstamp_set)(struct hnae3_handle *handle,
 			    struct kernel_hwtstamp_config *config,
 			    struct netlink_ext_ack *extack);
+	int (*dbg_read_cmd)(struct hnae3_handle *handle,
+			    enum hnae3_dbg_cmd cmd, char *buf, int len);
 };
 
 struct hnae3_dcb_ops {
@@ -856,6 +871,7 @@ struct hnae3_knic_private_info {
 	struct net_device *netdev; /* Set by KNIC client when init instance */
 	u16 rss_size;		   /* Allocated RSS queues */
 	u16 req_rss_size;
+	enum pkt_hash_types rss_type;
 	u16 rx_buf_len;
 	u16 num_tx_desc;
 	u16 num_rx_desc;
@@ -896,6 +912,7 @@ struct hnae3_roce_private_info {
 #define HNAE3_SUPPORT_VF	      BIT(3)
 #define HNAE3_SUPPORT_SERDES_PARALLEL_LOOPBACK	BIT(4)
 #define HNAE3_SUPPORT_EXTERNAL_LOOPBACK	BIT(5)
+#define HNAE3_SUPPORT_PLATFORM_DEV	BIT(6)
 
 #define HNAE3_USER_UPE		BIT(0)	/* unicast promisc enabled by user */
 #define HNAE3_USER_MPE		BIT(1)	/* mulitcast promisc enabled by user */
@@ -913,6 +930,7 @@ enum hnae3_pflag {
 struct hnae3_handle {
 	struct hnae3_client *client;
 	struct pci_dev *pdev;
+	struct platform_device *plfdev;
 	void *priv;
 	struct hnae3_ae_algo *ae_algo;  /* the class who provides this handle */
 	u64 flags; /* Indicate the capabilities for this handle */
