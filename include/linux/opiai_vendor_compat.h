@@ -17,7 +17,17 @@
  * Keep them building while we port the code incrementally.
  */
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 4, 0)
-#define class_create(owner, name) class_create(name)
+static inline struct class *opiai_class_create_compat(const char *name)
+{
+	return class_create(name);
+}
+
+#define __opiai_class_create1(name) opiai_class_create_compat(name)
+#define __opiai_class_create2(owner, name) opiai_class_create_compat(name)
+#define __opiai_class_create_get(_1, _2, name, ...) name
+#define class_create(...) \
+	__opiai_class_create_get(__VA_ARGS__, __opiai_class_create2, \
+				 __opiai_class_create1)(__VA_ARGS__)
 #endif
 
 /*
@@ -91,6 +101,11 @@ static inline void printk_safe_flush_on_panic(void)
  */
 #ifndef del_timer_sync
 #define del_timer_sync(timer) timer_delete_sync(timer)
+#endif
+
+#ifndef from_timer
+#define from_timer(var, callback_timer, timer_field) \
+	timer_container_of(var, callback_timer, timer_field)
 #endif
 
 /*
