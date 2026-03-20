@@ -78,6 +78,7 @@ struct fusb302_chip {
 	struct tcpc_dev tcpc_dev;
 
 	struct regulator *vbus;
+	struct gpio_desc *vbus_gpio;
 
 	spinlock_t irq_lock;
 	struct work_struct irq_work;
@@ -765,12 +766,18 @@ static int tcpm_set_vbus(struct tcpc_dev *dev, bool on, bool charge)
 	if (chip->vbus_on == on) {
 		fusb302_log(chip, "vbus is already %s", str_on_off(on));
 	} else {
-		if (on)
-			ret = regulator_enable(chip->vbus);
-		else
-			ret = regulator_disable(chip->vbus);
+		if (chip->vbus_gpio) {
+			ret = gpiod_direction_output(chip->vbus_gpio, on ? 1 : 0);
+		} else if (chip->vbus) {
+			if (on)
+				ret = regulator_enable(chip->vbus);
+			else
+				ret = regulator_disable(chip->vbus);
+		} else {
+			ret = -ENODEV;
+		}
 		if (ret < 0) {
-			fusb302_log(chip, "cannot %s vbus regulator, ret=%d",
+			fusb302_log(chip, "cannot %s vbus power, ret=%d",
 				    str_enable_disable(on), ret);
 			goto done;
 		}
@@ -1638,6 +1645,12 @@ static int init_gpio(struct fusb302_chip *chip)
 	struct device *dev = chip->dev;
 	int ret = 0;
 
+	chip->vbus_gpio = devm_gpiod_get_optional(dev, "vbus", GPIOD_OUT_LOW);
+	if (IS_ERR(chip->vbus_gpio)) {
+		dev_err(dev, "failed to request vbus-gpio\n");
+		return PTR_ERR(chip->vbus_gpio);
+	}
+
 	chip->gpio_int_n = devm_gpiod_get(dev, "fcs,int_n", GPIOD_IN);
 	if (IS_ERR(chip->gpio_int_n)) {
 		dev_err(dev, "failed to request gpio_int_n\n");
@@ -1719,9 +1732,13 @@ static int fusb302_probe(struct i2c_client *client)
 			return PTR_ERR(chip->extcon);
 	}
 
-	chip->vbus = devm_regulator_get(chip->dev, "vbus");
-	if (IS_ERR(chip->vbus))
-		return PTR_ERR(chip->vbus);
+	chip->vbus = devm_regulator_get_optional(chip->dev, "vbus");
+	if (IS_ERR(chip->vbus)) {
+		if (PTR_ERR(chip->vbus) == -ENODEV)
+			chip->vbus = NULL;
+		else
+			return PTR_ERR(chip->vbus);
+	}
 
 	chip->wq = create_singlethread_workqueue(dev_name(chip->dev));
 	if (!chip->wq)

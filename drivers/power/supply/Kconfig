@@ -279,6 +279,13 @@ config BATTERY_SBS
 	  Say Y to include support for SBS battery driver for SBS-compliant
 	  gas gauges.
 
+config BATTERY_BQ25700
+	tristate "BQ25713 battery driver"
+	depends on I2C
+	select REGMAP_I2C
+	help
+	  Say Y here to enable support for batteries with BQ25713 chips.
+
 config CHARGER_SBS
 	tristate "SBS Compliant charger"
 	depends on I2C
