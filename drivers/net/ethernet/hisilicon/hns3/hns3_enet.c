@@ -14,6 +14,7 @@
 #include <linux/iommu.h>
 #include <linux/module.h>
 #include <linux/pci.h>
+#include <linux/platform_device.h>
 #include <linux/skbuff.h>
 #include <linux/sctp.h>
 #include <net/gre.h>
@@ -381,6 +382,48 @@ static const struct hns3_rx_ptype hns3_rx_ptype_tbl[] = {
 #define HNS3_INVALID_PTYPE \
 		ARRAY_SIZE(hns3_rx_ptype_tbl)
 
+struct hnae3_ae_dev *hns3_get_ae_dev(struct hnae3_handle *handle)
+{
+	if (!handle) {
+		pr_err("hns3: %s param error! handle is null.\n", __func__);
+		return NULL;
+	}
+
+	if (handle->flags & HNAE3_SUPPORT_PLATFORM_DEV)
+		return platform_get_drvdata(handle->plfdev);
+
+	return pci_get_drvdata(handle->pdev);
+}
+EXPORT_SYMBOL(hns3_get_ae_dev);
+
+struct device *hns3_get_device(struct hnae3_handle *handle)
+{
+	if (handle->flags & HNAE3_SUPPORT_PLATFORM_DEV)
+		return &handle->plfdev->dev;
+
+	return &handle->pdev->dev;
+}
+
+const char *hns3_get_dev_name(struct hnae3_handle *handle)
+{
+	if (handle->flags & HNAE3_SUPPORT_PLATFORM_DEV)
+		return handle->plfdev->name;
+
+	return pci_name(handle->pdev);
+}
+
+const char *hns3_get_driver_name(struct hnae3_handle *handle)
+{
+	struct platform_driver *drv;
+
+	if (handle->flags & HNAE3_SUPPORT_PLATFORM_DEV) {
+		drv = to_platform_driver(handle->plfdev->dev.driver);
+		return drv->driver.name;
+	}
+
+	return handle->pdev->driver->name;
+}
+
 static irqreturn_t hns3_irq_handle(int irq, void *vector)
 {
 	struct hns3_enet_tqp_vector *tqp_vector = vector;
@@ -414,11 +457,14 @@ static void hns3_nic_uninit_irq(struct hns3_nic_priv *priv)
 static int hns3_nic_init_irq(struct hns3_nic_priv *priv)
 {
 	struct hns3_enet_tqp_vector *tqp_vectors;
+	const char *dev_name;
 	int txrx_int_idx = 0;
 	int rx_int_idx = 0;
 	int tx_int_idx = 0;
 	unsigned int i;
 	int ret;
+
+	dev_name = hns3_get_dev_name(priv->ae_handle);
 
 	for (i = 0; i < priv->vector_num; i++) {
 		tqp_vectors = &priv->tqp_vector[i];
@@ -429,18 +475,18 @@ static int hns3_nic_init_irq(struct hns3_nic_priv *priv)
 		if (tqp_vectors->tx_group.ring && tqp_vectors->rx_group.ring) {
 			snprintf(tqp_vectors->name, HNAE3_INT_NAME_LEN,
 				 "%s-%s-%s-%d", hns3_driver_name,
-				 pci_name(priv->ae_handle->pdev),
+				 dev_name,
 				 "TxRx", txrx_int_idx++);
 			txrx_int_idx++;
 		} else if (tqp_vectors->rx_group.ring) {
 			snprintf(tqp_vectors->name, HNAE3_INT_NAME_LEN,
 				 "%s-%s-%s-%d", hns3_driver_name,
-				 pci_name(priv->ae_handle->pdev),
+				 dev_name,
 				 "Rx", rx_int_idx++);
 		} else if (tqp_vectors->tx_group.ring) {
 			snprintf(tqp_vectors->name, HNAE3_INT_NAME_LEN,
 				 "%s-%s-%s-%d", hns3_driver_name,
-				 pci_name(priv->ae_handle->pdev),
+				 dev_name,
 				 "Tx", tx_int_idx++);
 		} else {
 			/* Skip this unused q_vector */
@@ -2389,16 +2435,18 @@ static int hns3_nic_net_set_mac_address(struct net_device *netdev, void *p)
 		return 0;
 	}
 
-	/* For VF device, if there is a perm_addr, then the user will not
+	/* For VF pcie device, if there is a perm_addr, then the user will not
 	 * be allowed to change the address.
 	 */
-	if (!hns3_is_phys_func(h->pdev) &&
-	    !is_zero_ether_addr(netdev->perm_addr)) {
-		hnae3_format_mac_addr(format_mac_addr_perm, netdev->perm_addr);
-		hnae3_format_mac_addr(format_mac_addr_sa, mac_addr->sa_data);
-		netdev_err(netdev, "has permanent MAC %s, user MAC %s not allow\n",
-			   format_mac_addr_perm, format_mac_addr_sa);
-		return -EPERM;
+	if (!(h->flags & HNAE3_SUPPORT_PLATFORM_DEV)) {
+		if (!hns3_is_phys_func(h->pdev) &&
+		    !is_zero_ether_addr(netdev->perm_addr)) {
+			hnae3_format_mac_addr(format_mac_addr_perm, netdev->perm_addr);
+			hnae3_format_mac_addr(format_mac_addr_sa, mac_addr->sa_data);
+			netdev_err(netdev, "has permanent MAC %s, user MAC %s not allow\n",
+				   format_mac_addr_perm, format_mac_addr_sa);
+			return -EPERM;
+		}
 	}
 
 	ret = h->ae_algo->ops->set_mac_addr(h, mac_addr->sa_data, false);
@@ -2936,7 +2984,8 @@ static void hns3_nic_net_timeout(struct net_device *ndev, unsigned int txqueue)
 	/* request the reset, and let the hclge to determine
 	 * which reset level should be done
 	 */
-	if (h->ae_algo->ops->reset_event)
+	if (h->ae_algo->ops->reset_event &&
+	    !(h->flags & HNAE3_SUPPORT_PLATFORM_DEV))
 		h->ae_algo->ops->reset_event(h->pdev, h);
 }
 
@@ -3358,8 +3407,7 @@ static struct pci_driver hns3_driver = {
 static void hns3_set_default_feature(struct net_device *netdev)
 {
 	struct hnae3_handle *h = hns3_get_handle(netdev);
-	struct pci_dev *pdev = h->pdev;
-	struct hnae3_ae_dev *ae_dev = pci_get_drvdata(pdev);
+	struct hnae3_ae_dev *ae_dev = hns3_get_ae_dev(h);
 
 	netdev->priv_flags |= IFF_UNICAST_FLT;
 
@@ -4020,8 +4068,7 @@ static bool hns3_parse_vlan_tag(struct hns3_enet_ring *ring,
 				u16 *vlan_tag)
 {
 	struct hnae3_handle *handle = ring->tqp->handle;
-	struct pci_dev *pdev = ring->tqp->handle->pdev;
-	struct hnae3_ae_dev *ae_dev = pci_get_drvdata(pdev);
+	struct hnae3_ae_dev *ae_dev = hns3_get_ae_dev(handle);
 
 	if (unlikely(ae_dev->dev_version < HNAE3_DEVICE_VERSION_V2)) {
 		*vlan_tag = le16_to_cpu(desc->rx.ot_vlan_tag);
@@ -4573,7 +4620,7 @@ static int hns3_create_ring_chain(struct hns3_enet_tqp_vector *tqp_vector,
 	u32 bit_value = is_tx ? HNAE3_RING_TYPE_TX : HNAE3_RING_TYPE_RX;
 	u32 field_value = is_tx ? HNAE3_RING_GL_TX : HNAE3_RING_GL_RX;
 	struct hnae3_ring_chain_node *cur_chain = *head;
-	struct pci_dev *pdev = tqp_vector->handle->pdev;
+	struct device *dev = hns3_get_device(tqp_vector->handle);
 	struct hnae3_ring_chain_node *chain;
 	struct hns3_enet_ring *ring;
 
@@ -4585,7 +4632,7 @@ static int hns3_create_ring_chain(struct hns3_enet_tqp_vector *tqp_vector,
 	}
 
 	while (ring) {
-		chain = devm_kzalloc(&pdev->dev, sizeof(*chain), GFP_KERNEL);
+		chain = devm_kzalloc(dev, sizeof(*chain), GFP_KERNEL);
 		if (!chain)
 			return -ENOMEM;
 		if (cur_chain)
@@ -4610,7 +4657,7 @@ static int hns3_create_ring_chain(struct hns3_enet_tqp_vector *tqp_vector,
 static struct hnae3_ring_chain_node *
 hns3_get_vector_ring_chain(struct hns3_enet_tqp_vector *tqp_vector)
 {
-	struct pci_dev *pdev = tqp_vector->handle->pdev;
+	struct device *dev = hns3_get_device(tqp_vector->handle);
 	struct hnae3_ring_chain_node *cur_chain = NULL;
 	struct hnae3_ring_chain_node *chain;
 
@@ -4625,7 +4672,7 @@ hns3_get_vector_ring_chain(struct hns3_enet_tqp_vector *tqp_vector)
 err_free_chain:
 	while (cur_chain) {
 		chain = cur_chain->next;
-		devm_kfree(&pdev->dev, cur_chain);
+		devm_kfree(dev, cur_chain);
 		cur_chain = chain;
 	}
 
@@ -4635,14 +4682,14 @@ err_free_chain:
 static void hns3_free_vector_ring_chain(struct hns3_enet_tqp_vector *tqp_vector,
 					struct hnae3_ring_chain_node *head)
 {
-	struct pci_dev *pdev = tqp_vector->handle->pdev;
+	struct device *dev = hns3_get_device(tqp_vector->handle);
 	struct hnae3_ring_chain_node *chain_tmp, *chain;
 
 	chain = head;
 
 	while (chain) {
 		chain_tmp = chain->next;
-		devm_kfree(&pdev->dev, chain);
+		devm_kfree(dev, chain);
 		chain = chain_tmp;
 	}
 }
@@ -4658,13 +4705,13 @@ static void hns3_add_ring_to_group(struct hns3_enet_ring_group *group,
 
 static void hns3_nic_set_cpumask(struct hns3_nic_priv *priv)
 {
-	struct pci_dev *pdev = priv->ae_handle->pdev;
+	struct device *dev = hns3_get_device(priv->ae_handle);
 	struct hns3_enet_tqp_vector *tqp_vector;
 	int num_vectors = priv->vector_num;
 	int numa_node;
 	int vector_i;
 
-	numa_node = dev_to_node(&pdev->dev);
+	numa_node = dev_to_node(dev);
 
 	for (vector_i = 0; vector_i < num_vectors; vector_i++) {
 		tqp_vector = &priv->tqp_vector[vector_i];
@@ -4821,9 +4868,9 @@ static void hns3_nic_init_coal_cfg(struct hns3_nic_priv *priv)
 static int hns3_nic_alloc_vector_data(struct hns3_nic_priv *priv)
 {
 	struct hnae3_handle *h = priv->ae_handle;
+	struct device *dev = hns3_get_device(h);
 	struct hns3_enet_tqp_vector *tqp_vector;
 	struct hnae3_vector_info *vector;
-	struct pci_dev *pdev = h->pdev;
 	u16 tqp_num = h->kinfo.num_tqps;
 	u16 vector_num;
 	int ret = 0;
@@ -4833,7 +4880,7 @@ static int hns3_nic_alloc_vector_data(struct hns3_nic_priv *priv)
 	/* Should consider 2p/4p later */
 	vector_num = min_t(u16, num_online_cpus(), tqp_num);
 
-	vector = devm_kcalloc(&pdev->dev, vector_num, sizeof(*vector),
+	vector = devm_kcalloc(dev, vector_num, sizeof(*vector),
 			      GFP_KERNEL);
 	if (!vector)
 		return -ENOMEM;
@@ -4843,7 +4890,7 @@ static int hns3_nic_alloc_vector_data(struct hns3_nic_priv *priv)
 
 	priv->vector_num = vector_num;
 	priv->tqp_vector = (struct hns3_enet_tqp_vector *)
-		devm_kcalloc(&pdev->dev, vector_num, sizeof(*priv->tqp_vector),
+		devm_kcalloc(dev, vector_num, sizeof(*priv->tqp_vector),
 			     GFP_KERNEL);
 	if (!priv->tqp_vector) {
 		ret = -ENOMEM;
@@ -4859,7 +4906,7 @@ static int hns3_nic_alloc_vector_data(struct hns3_nic_priv *priv)
 	}
 
 out:
-	devm_kfree(&pdev->dev, vector);
+	devm_kfree(dev, vector);
 	return ret;
 }
 
@@ -4904,7 +4951,7 @@ static void hns3_nic_uninit_vector_data(struct hns3_nic_priv *priv)
 static void hns3_nic_dealloc_vector_data(struct hns3_nic_priv *priv)
 {
 	struct hnae3_handle *h = priv->ae_handle;
-	struct pci_dev *pdev = h->pdev;
+	struct device *dev = hns3_get_device(h);
 	int i, ret;
 
 	for (i = 0; i < priv->vector_num; i++) {
@@ -4916,7 +4963,7 @@ static void hns3_nic_dealloc_vector_data(struct hns3_nic_priv *priv)
 			return;
 	}
 
-	devm_kfree(&pdev->dev, priv->tqp_vector);
+	devm_kfree(dev, priv->tqp_vector);
 }
 
 static void hns3_update_tx_spare_buf_config(struct hns3_nic_priv *priv)
@@ -4986,10 +5033,10 @@ static void hns3_queue_to_ring(struct hnae3_queue *tqp,
 static int hns3_get_ring_config(struct hns3_nic_priv *priv)
 {
 	struct hnae3_handle *h = priv->ae_handle;
-	struct pci_dev *pdev = h->pdev;
+	struct device *dev = hns3_get_device(h);
 	int i;
 
-	priv->ring = devm_kzalloc(&pdev->dev,
+	priv->ring = devm_kzalloc(dev,
 				  array3_size(h->kinfo.num_tqps,
 					      sizeof(*priv->ring), 2),
 				  GFP_KERNEL);
@@ -5362,8 +5409,8 @@ static void hns3_state_uninit(struct hnae3_handle *handle)
 
 int hns3_client_init(struct hnae3_handle *handle)
 {
-	struct pci_dev *pdev = handle->pdev;
-	struct hnae3_ae_dev *ae_dev = pci_get_drvdata(pdev);
+	struct hnae3_ae_dev *ae_dev = hns3_get_ae_dev(handle);
+	struct device *dev = hns3_get_device(handle);
 	u16 alloc_tqps, max_rss_size;
 	struct hns3_nic_priv *priv;
 	struct net_device *netdev;
@@ -5378,7 +5425,7 @@ int hns3_client_init(struct hnae3_handle *handle)
 		return -ENOMEM;
 
 	priv = netdev_priv(netdev);
-	priv->dev = &pdev->dev;
+	priv->dev = dev;
 	priv->netdev = netdev;
 	priv->ae_handle = handle;
 	priv->tx_timeout_count = 0;
@@ -5399,7 +5446,7 @@ int hns3_client_init(struct hnae3_handle *handle)
 	netdev->watchdog_timeo = HNS3_TX_TIMEOUT;
 	netdev->priv_flags |= IFF_UNICAST_FLT;
 	netdev->netdev_ops = &hns3_nic_netdev_ops;
-	SET_NETDEV_DEV(netdev, &pdev->dev);
+	SET_NETDEV_DEV(netdev, dev);
 	hns3_ethtool_set_ops(netdev);
 
 	/* Carrier off reporting is important to ethtool even BEFORE open */
@@ -5777,7 +5824,8 @@ static int hns3_reset_notify_init_enet(struct hnae3_handle *handle)
 		goto err_init_irq_fail;
 	}
 
-	if (!hns3_is_phys_func(handle->pdev))
+	if (!(handle->flags & HNAE3_SUPPORT_PLATFORM_DEV) &&
+	    !hns3_is_phys_func(handle->pdev))
 		hns3_init_mac_addr(netdev);
 
 	ret = hns3_client_start(handle);
@@ -5868,7 +5916,7 @@ static int hns3_change_channels(struct hnae3_handle *handle, u32 new_tqp_num,
 	ret = handle->ae_algo->ops->set_channels(handle, new_tqp_num,
 						 rxfh_configured);
 	if (ret) {
-		dev_err(&handle->pdev->dev,
+		dev_err(hns3_get_device(handle),
 			"Change tqp num(%u) fail.\n", new_tqp_num);
 		return ret;
 	}
@@ -6019,7 +6067,7 @@ void hns3_process_hw_error(struct hnae3_handle *handle,
 
 	for (i = 0; i < ARRAY_SIZE(hns3_hw_err); i++) {
 		if (hns3_hw_err[i].type == type) {
-			dev_err(&handle->pdev->dev, "Detected %s!\n",
+			dev_err(hns3_get_device(handle), "Detected %s!\n",
 				hns3_hw_err[i].msg);
 			break;
 		}

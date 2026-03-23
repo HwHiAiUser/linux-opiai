@@ -699,8 +699,10 @@ static inline unsigned int hns3_page_order(struct hns3_enet_ring *ring)
 #define hns3_get_handle(ndev) \
 	(((struct hns3_nic_priv *)netdev_priv(ndev))->ae_handle)
 
-#define hns3_get_ae_dev(handle) \
-	(pci_get_drvdata((handle)->pdev))
+struct hnae3_ae_dev *hns3_get_ae_dev(struct hnae3_handle *handle);
+struct device *hns3_get_device(struct hnae3_handle *handle);
+const char *hns3_get_dev_name(struct hnae3_handle *handle);
+const char *hns3_get_driver_name(struct hnae3_handle *handle);
 
 #define hns3_get_ops(handle) \
 	((handle)->ae_algo->ops)

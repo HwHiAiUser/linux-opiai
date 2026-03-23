@@ -634,10 +634,10 @@ static void hns3_get_drvinfo(struct net_device *netdev,
 		return;
 	}
 
-	strscpy(drvinfo->driver, dev_driver_string(&h->pdev->dev),
+	strscpy(drvinfo->driver, hns3_get_driver_name(h),
 		sizeof(drvinfo->driver));
 
-	strscpy(drvinfo->bus_info, pci_name(h->pdev),
+	strscpy(drvinfo->bus_info, hns3_get_dev_name(h),
 		sizeof(drvinfo->bus_info));
 
 	fw_version = priv->ae_handle->ae_algo->ops->get_fw_version(h);
@@ -1067,7 +1067,8 @@ static int hns3_set_reset(struct net_device *netdev, u32 *flags)
 
 	ops->set_default_reset_request(ae_dev, rst_type);
 
-	ops->reset_event(h->pdev, h);
+	if (!(h->flags & HNAE3_SUPPORT_PLATFORM_DEV))
+		ops->reset_event(h->pdev, h);
 
 	*flags &= ~rst_flags;
 

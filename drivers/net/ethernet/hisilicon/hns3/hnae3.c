@@ -2,6 +2,7 @@
 // Copyright (c) 2016-2017 Hisilicon Limited.
 
 #include <linux/list.h>
+#include <linux/platform_device.h>
 #include <linux/spinlock.h>
 
 #include "hnae3.h"
@@ -22,13 +23,15 @@ void hnae3_unregister_ae_algo_prepare(struct hnae3_ae_algo *ae_algo)
 		if (!hnae3_get_bit(ae_dev->flag, HNAE3_DEV_INITED_B))
 			continue;
 
-		pci_id = pci_match_id(ae_algo->pdev_id_table, ae_dev->pdev);
-		if (!pci_id)
-			continue;
-		if (IS_ENABLED(CONFIG_PCI_IOV)) {
-			device_lock(&ae_dev->pdev->dev);
-			pci_disable_sriov(ae_dev->pdev);
-			device_unlock(&ae_dev->pdev->dev);
+		if (ae_dev->pdev) {
+			pci_id = pci_match_id(ae_algo->pdev_id_table, ae_dev->pdev);
+			if (!pci_id)
+				continue;
+			if (IS_ENABLED(CONFIG_PCI_IOV)) {
+				device_lock(&ae_dev->pdev->dev);
+				pci_disable_sriov(ae_dev->pdev);
+				device_unlock(&ae_dev->pdev->dev);
+			}
 		}
 	}
 }
@@ -68,6 +71,17 @@ void hnae3_release_unload_lock(void)
 	mutex_unlock(&hnae3_unload_lock);
 }
 EXPORT_SYMBOL(hnae3_release_unload_lock);
+
+static struct device *hnae3_get_device(struct hnae3_ae_dev *ae_dev)
+{
+	if (ae_dev->pdev)
+		return &ae_dev->pdev->dev;
+	if (ae_dev->plfdev)
+		return &ae_dev->plfdev->dev;
+
+	pr_err("hnae3: failed to get device.\n");
+	return NULL;
+}
 
 static bool hnae3_client_match(enum hnae3_client_type client_type)
 {
@@ -132,7 +146,7 @@ static int hnae3_init_client_instance(struct hnae3_client *client,
 
 	ret = ae_dev->ops->init_client_instance(client, ae_dev);
 	if (ret)
-		dev_err(&ae_dev->pdev->dev,
+		dev_err(hnae3_get_device(ae_dev),
 			"fail to instantiate client, ret = %d\n", ret);
 
 	return ret;
@@ -177,7 +191,7 @@ int hnae3_register_client(struct hnae3_client *client)
 		 */
 		int ret = hnae3_init_client_instance(client, ae_dev);
 		if (ret)
-			dev_err(&ae_dev->pdev->dev,
+			dev_err(hnae3_get_device(ae_dev),
 				"match and instantiation failed for port, ret = %d\n",
 				ret);
 	}
@@ -243,19 +257,21 @@ void hnae3_register_ae_algo(struct hnae3_ae_algo *ae_algo)
 
 	/* Check if this algo/ops matches the list of ae_devs */
 	list_for_each_entry(ae_dev, &hnae3_ae_dev_list, node) {
-		id = pci_match_id(ae_algo->pdev_id_table, ae_dev->pdev);
-		if (!id)
-			continue;
+		if (ae_dev->pdev) {
+			id = pci_match_id(ae_algo->pdev_id_table, ae_dev->pdev);
+			if (!id)
+				continue;
+		}
 
 		if (!ae_algo->ops) {
-			dev_err(&ae_dev->pdev->dev, "ae_algo ops are null\n");
+			dev_err(hnae3_get_device(ae_dev), "ae_algo ops are null\n");
 			continue;
 		}
 		ae_dev->ops = ae_algo->ops;
 
 		ret = ae_algo->ops->init_ae_dev(ae_dev);
 		if (ret) {
-			dev_err(&ae_dev->pdev->dev,
+			dev_err(hnae3_get_device(ae_dev),
 				"init ae_dev error, ret = %d\n", ret);
 			continue;
 		}
@@ -269,7 +285,7 @@ void hnae3_register_ae_algo(struct hnae3_ae_algo *ae_algo)
 		list_for_each_entry(client, &hnae3_client_list, node) {
 			ret = hnae3_init_client_instance(client, ae_dev);
 			if (ret)
-				dev_err(&ae_dev->pdev->dev,
+				dev_err(hnae3_get_device(ae_dev),
 					"match and instantiation failed, ret = %d\n",
 					ret);
 		}
@@ -297,9 +313,11 @@ void hnae3_unregister_ae_algo(struct hnae3_ae_algo *ae_algo)
 		if (!hnae3_get_bit(ae_dev->flag, HNAE3_DEV_INITED_B))
 			continue;
 
-		id = pci_match_id(ae_algo->pdev_id_table, ae_dev->pdev);
-		if (!id)
-			continue;
+		if (ae_dev->pdev) {
+			id = pci_match_id(ae_algo->pdev_id_table, ae_dev->pdev);
+			if (!id)
+				continue;
+		}
 
 		/* check the client list for the match with this ae_dev type and
 		 * un-initialize the figure out client instance
@@ -337,12 +355,14 @@ int hnae3_register_ae_dev(struct hnae3_ae_dev *ae_dev)
 
 	/* Check if there are matched ae_algo */
 	list_for_each_entry(ae_algo, &hnae3_ae_algo_list, node) {
-		id = pci_match_id(ae_algo->pdev_id_table, ae_dev->pdev);
-		if (!id)
-			continue;
+		if (ae_dev->pdev) {
+			id = pci_match_id(ae_algo->pdev_id_table, ae_dev->pdev);
+			if (!id)
+				continue;
+		}
 
 		if (!ae_algo->ops) {
-			dev_err(&ae_dev->pdev->dev, "ae_algo ops are null\n");
+			dev_err(hnae3_get_device(ae_dev), "ae_algo ops are null\n");
 			ret = -EOPNOTSUPP;
 			goto out_err;
 		}
@@ -350,7 +370,7 @@ int hnae3_register_ae_dev(struct hnae3_ae_dev *ae_dev)
 
 		ret = ae_dev->ops->init_ae_dev(ae_dev);
 		if (ret) {
-			dev_err(&ae_dev->pdev->dev,
+			dev_err(hnae3_get_device(ae_dev),
 				"init ae_dev error, ret = %d\n", ret);
 			goto out_err;
 		}
@@ -366,7 +386,7 @@ int hnae3_register_ae_dev(struct hnae3_ae_dev *ae_dev)
 	list_for_each_entry(client, &hnae3_client_list, node) {
 		ret = hnae3_init_client_instance(client, ae_dev);
 		if (ret)
-			dev_err(&ae_dev->pdev->dev,
+			dev_err(hnae3_get_device(ae_dev),
 				"match and instantiation failed, ret = %d\n",
 				ret);
 	}
@@ -401,9 +421,11 @@ void hnae3_unregister_ae_dev(struct hnae3_ae_dev *ae_dev)
 		if (!hnae3_get_bit(ae_dev->flag, HNAE3_DEV_INITED_B))
 			continue;
 
-		id = pci_match_id(ae_algo->pdev_id_table, ae_dev->pdev);
-		if (!id)
-			continue;
+		if (ae_dev->pdev) {
+			id = pci_match_id(ae_algo->pdev_id_table, ae_dev->pdev);
+			if (!id)
+				continue;
+		}
 
 		list_for_each_entry(client, &hnae3_client_list, node)
 			hnae3_uninit_client_instance(client, ae_dev);

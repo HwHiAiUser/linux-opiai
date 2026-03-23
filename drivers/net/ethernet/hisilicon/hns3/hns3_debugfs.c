@@ -499,7 +499,7 @@ static int hns3_dbg_rx_queue_info(struct seq_file *s, void *data)
 	u32 i;
 
 	if (!priv->ring) {
-		dev_err(&h->pdev->dev, "priv->ring is NULL\n");
+		dev_err(hns3_get_device(h), "priv->ring is NULL\n");
 		return -EFAULT;
 	}
 
@@ -564,7 +564,7 @@ static int hns3_dbg_tx_queue_info(struct seq_file *s, void *data)
 	u32 i;
 
 	if (!priv->ring) {
-		dev_err(&h->pdev->dev, "priv->ring is NULL\n");
+		dev_err(hns3_get_device(h), "priv->ring is NULL\n");
 		return -EFAULT;
 	}
 
@@ -644,7 +644,7 @@ static int hns3_dbg_rx_bd_info(struct seq_file *s, void *private)
 	unsigned int i;
 
 	if (data->qid >= h->kinfo.num_tqps) {
-		dev_err(&h->pdev->dev, "queue%u is not in use\n", data->qid);
+		dev_err(hns3_get_device(h), "queue%u is not in use\n", data->qid);
 		return -EINVAL;
 	}
 
@@ -689,7 +689,7 @@ static int hns3_dbg_tx_bd_info(struct seq_file *s, void *private)
 	unsigned int i;
 
 	if (data->qid >= h->kinfo.num_tqps) {
-		dev_err(&h->pdev->dev, "queue%u is not in use\n", data->qid);
+		dev_err(hns3_get_device(h), "queue%u is not in use\n", data->qid);
 		return -EINVAL;
 	}
 
@@ -727,7 +727,7 @@ static void hns3_dbg_dev_caps(struct hnae3_handle *h, struct seq_file *s)
 
 static void hns3_dbg_dev_specs(struct hnae3_handle *h, struct seq_file *s)
 {
-	struct hnae3_ae_dev *ae_dev = pci_get_drvdata(h->pdev);
+	struct hnae3_ae_dev *ae_dev = hns3_get_ae_dev(h);
 	struct hnae3_dev_specs *dev_specs = &ae_dev->dev_specs;
 	struct hnae3_knic_private_info *kinfo = &h->kinfo;
 	struct net_device *dev = kinfo->netdev;
@@ -791,12 +791,12 @@ static int hns3_dbg_page_pool_info(struct seq_file *s, void *data)
 	u32 i;
 
 	if (!priv->ring) {
-		dev_err(&h->pdev->dev, "priv->ring is NULL\n");
+		dev_err(hns3_get_device(h), "priv->ring is NULL\n");
 		return -EFAULT;
 	}
 
 	if (!priv->ring[h->kinfo.num_tqps].page_pool) {
-		dev_err(&h->pdev->dev, "page pool is not initialized\n");
+		dev_err(hns3_get_device(h), "page pool is not initialized\n");
 		return -EFAULT;
 	}
 
@@ -843,7 +843,7 @@ static int hns3_dbg_bd_file_init(struct hnae3_handle *handle, u32 cmd)
 
 	entry_dir = hns3_dbg_dentry[hns3_dbg_cmd[cmd].dentry].dentry;
 	max_queue_num = hns3_get_max_available_channels(handle);
-	data = devm_kcalloc(&handle->pdev->dev, max_queue_num, sizeof(*data),
+	data = devm_kcalloc(hns3_get_device(handle), max_queue_num, sizeof(*data),
 			    GFP_KERNEL);
 	if (!data)
 		return -ENOMEM;
@@ -864,7 +864,7 @@ static int hns3_dbg_bd_file_init(struct hnae3_handle *handle, u32 cmd)
 
 static int hns3_dbg_common_init_t1(struct hnae3_handle *handle, u32 cmd)
 {
-	struct device *dev = &handle->pdev->dev;
+	struct device *dev = hns3_get_device(handle);
 	struct dentry *entry_dir;
 	read_func func = NULL;
 
@@ -901,7 +901,7 @@ static int hns3_dbg_common_init_t1(struct hnae3_handle *handle, u32 cmd)
 static int hns3_dbg_common_init_t2(struct hnae3_handle *handle, u32 cmd)
 {
 	const struct hnae3_ae_ops *ops = hns3_get_ops(handle);
-	struct device *dev = &handle->pdev->dev;
+	struct device *dev = hns3_get_device(handle);
 	struct dentry *entry_dir;
 	read_func func;
 	int ret;
@@ -923,7 +923,7 @@ static int hns3_dbg_common_init_t2(struct hnae3_handle *handle, u32 cmd)
 int hns3_dbg_init(struct hnae3_handle *handle)
 {
 	struct hnae3_ae_dev *ae_dev = hns3_get_ae_dev(handle);
-	const char *name = pci_name(handle->pdev);
+	const char *name = hns3_get_dev_name(handle);
 	int ret;
 	u32 i;
 
@@ -944,7 +944,7 @@ int hns3_dbg_init(struct hnae3_handle *handle)
 			continue;
 
 		if (!hns3_dbg_cmd[i].init) {
-			dev_err(&handle->pdev->dev,
+			dev_err(hns3_get_device(handle),
 				"cmd %s lack of init func\n",
 				hns3_dbg_cmd[i].name);
 			ret = -EINVAL;
@@ -953,7 +953,7 @@ int hns3_dbg_init(struct hnae3_handle *handle)
 
 		ret = hns3_dbg_cmd[i].init(handle, i);
 		if (ret) {
-			dev_err(&handle->pdev->dev, "failed to init cmd %s\n",
+			dev_err(hns3_get_device(handle), "failed to init cmd %s\n",
 				hns3_dbg_cmd[i].name);
 			goto out;
 		}
