@@ -877,6 +877,8 @@ int panfrost_jm_init(struct panfrost_device *pfdev)
 
 	js->irq = platform_get_irq_byname(to_platform_device(pfdev->base.dev), "job");
 	if (js->irq < 0)
+		js->irq = platform_get_irq_byname(to_platform_device(pfdev->base.dev), "JOB");
+	if (js->irq < 0)
 		return js->irq;
 
 	ret = devm_request_threaded_irq(pfdev->base.dev, js->irq,

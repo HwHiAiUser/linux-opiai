@@ -945,6 +945,8 @@ int panfrost_mmu_init(struct panfrost_device *pfdev)
 
 	pfdev->mmu_irq = platform_get_irq_byname(to_platform_device(pfdev->base.dev), "mmu");
 	if (pfdev->mmu_irq < 0)
+		pfdev->mmu_irq = platform_get_irq_byname(to_platform_device(pfdev->base.dev), "MMU");
+	if (pfdev->mmu_irq < 0)
 		return pfdev->mmu_irq;
 
 	err = devm_request_threaded_irq(pfdev->base.dev, pfdev->mmu_irq,

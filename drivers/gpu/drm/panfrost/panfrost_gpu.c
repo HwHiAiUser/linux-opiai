@@ -85,13 +85,32 @@ int panfrost_gpu_soft_reset(struct panfrost_device *pfdev)
 		}
 	}
 
-	gpu_write(pfdev, GPU_INT_CLEAR, GPU_IRQ_MASK_ALL);
+	/*
+	 * Vendor driver for no_clock SoCs uses a different IRQ mask that
+	 * includes POWER_CHANGED events but excludes MULTIPLE_FAULT.
+	 */
+	if (pfdev->comp->no_clock) {
+		gpu_write(pfdev, GPU_INT_CLEAR,
+			  GPU_IRQ_FAULT |
+			  GPU_IRQ_POWER_CHANGED |
+			  GPU_IRQ_POWER_CHANGED_ALL |
+			  GPU_IRQ_PERFCNT_SAMPLE_COMPLETED |
+			  GPU_IRQ_CLEAN_CACHES_COMPLETED);
+		gpu_write(pfdev, GPU_INT_MASK,
+			  GPU_IRQ_FAULT |
+			  GPU_IRQ_POWER_CHANGED |
+			  GPU_IRQ_POWER_CHANGED_ALL |
+			  GPU_IRQ_PERFCNT_SAMPLE_COMPLETED |
+			  GPU_IRQ_CLEAN_CACHES_COMPLETED);
+	} else {
+		gpu_write(pfdev, GPU_INT_CLEAR, GPU_IRQ_MASK_ALL);
 
-	/* Only enable the interrupts we care about */
-	gpu_write(pfdev, GPU_INT_MASK,
-		  GPU_IRQ_MASK_ERROR |
-		  GPU_IRQ_PERFCNT_SAMPLE_COMPLETED |
-		  GPU_IRQ_CLEAN_CACHES_COMPLETED);
+		/* Only enable the interrupts we care about */
+		gpu_write(pfdev, GPU_INT_MASK,
+			  GPU_IRQ_MASK_ERROR |
+			  GPU_IRQ_PERFCNT_SAMPLE_COMPLETED |
+			  GPU_IRQ_CLEAN_CACHES_COMPLETED);
+	}
 
 	/*
 	 * All in-flight jobs should have released their cycle
@@ -465,6 +484,19 @@ void panfrost_gpu_power_off(struct panfrost_device *pfdev)
 	int ret;
 	u32 val;
 
+	/*
+	 * On SoCs with no_clock set, the GPU power is managed by SoC-level
+	 * clock gating registers rather than per-core PWROFF. Writing the
+	 * present bitmaps to PWROFF can cause timeouts on these platforms.
+	 * The vendor driver writes 0 (no-op) to PWROFF registers instead.
+	 */
+	if (pfdev->comp->no_clock) {
+		gpu_write(pfdev, SHADER_PWROFF_LO, 0);
+		gpu_write(pfdev, TILER_PWROFF_LO, 0);
+		gpu_write(pfdev, L2_PWROFF_LO, 0);
+		return;
+	}
+
 	gpu_write(pfdev, SHADER_PWROFF_LO, pfdev->features.shader_present);
 	ret = readl_relaxed_poll_timeout(pfdev->iomem + SHADER_PWRTRANS_LO,
 					 val, !val, 1, 2000);
@@ -513,6 +545,8 @@ int panfrost_gpu_init(struct panfrost_device *pfdev)
 	dma_set_max_seg_size(pfdev->base.dev, UINT_MAX);
 
 	pfdev->gpu_irq = platform_get_irq_byname(to_platform_device(pfdev->base.dev), "gpu");
+	if (pfdev->gpu_irq < 0)
+		pfdev->gpu_irq = platform_get_irq_byname(to_platform_device(pfdev->base.dev), "GPU");
 	if (pfdev->gpu_irq < 0)
 		return pfdev->gpu_irq;
 

@@ -7,6 +7,7 @@
 #include <asm/arch_timer.h>
 #endif
 
+#include <linux/io.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/pagemap.h>
@@ -976,6 +977,84 @@ static const struct panfrost_compatible default_data = {
 	.pm_domain_names = NULL,
 };
 
+/*
+ * malit6xx SoC-specific init: ioremap GPU subsystem control registers and
+ * configure clock gating bits. Derived from vendor driver reverse engineering.
+ *
+ * Register layout:
+ *   sched_reg   @ 0x400100000 (GPU scheduler control)
+ *   subctrl_reg @ 0x400130000 (GPU subsystem control)
+ *   wrap_reg    @ 0x4010A0000 (GPU wrapper control)
+ */
+#define MALIT6XX_SCHED_REG_BASE		0x400100000ULL
+#define MALIT6XX_SUBCTRL_REG_BASE	0x400130000ULL
+#define MALIT6XX_WRAP_REG_BASE		0x4010A0000ULL
+#define MALIT6XX_REG_SIZE		0x10000
+
+/* subctrl_reg offsets */
+#define SUBCTRL_CLK_EN			0x618	/* clock enable register */
+#define SUBCTRL_CLK_STATUS		0x5618	/* clock status register */
+#define SUBCTRL_PWR_CTRL		0xA8C	/* power control register */
+
+/* sched_reg offsets */
+#define SCHED_CTRL0			0x30	/* scheduler control 0 */
+#define SCHED_CTRL1			0x34	/* scheduler control 1 */
+
+static int panfrost_malit6xx_init(struct panfrost_device *pfdev)
+{
+	u32 val;
+
+	pfdev->sched_reg = devm_ioremap(pfdev->base.dev, MALIT6XX_SCHED_REG_BASE,
+					MALIT6XX_REG_SIZE);
+	if (!pfdev->sched_reg) {
+		dev_err(pfdev->base.dev, "failed to ioremap sched_reg\n");
+		return -ENOMEM;
+	}
+
+	pfdev->subctrl_reg = devm_ioremap(pfdev->base.dev, MALIT6XX_SUBCTRL_REG_BASE,
+					  MALIT6XX_REG_SIZE);
+	if (!pfdev->subctrl_reg) {
+		dev_err(pfdev->base.dev, "failed to ioremap subctrl_reg\n");
+		return -ENOMEM;
+	}
+
+	pfdev->wrap_reg = devm_ioremap(pfdev->base.dev, MALIT6XX_WRAP_REG_BASE,
+				       MALIT6XX_REG_SIZE);
+	if (!pfdev->wrap_reg) {
+		dev_err(pfdev->base.dev, "failed to ioremap wrap_reg\n");
+		return -ENOMEM;
+	}
+
+	/* Enable GPU clock gating */
+	val = readl(pfdev->subctrl_reg + SUBCTRL_CLK_EN);
+	writel(val | BIT(0), pfdev->subctrl_reg + SUBCTRL_CLK_EN);
+
+	/* Check clock status and configure scheduler/power if active */
+	val = readl(pfdev->subctrl_reg + SUBCTRL_CLK_STATUS);
+	if (val & BIT(0)) {
+		/* Clear bit 0 in scheduler control registers */
+		val = readl(pfdev->sched_reg + SCHED_CTRL0);
+		writel(val & ~BIT(0), pfdev->sched_reg + SCHED_CTRL0);
+
+		val = readl(pfdev->sched_reg + SCHED_CTRL1);
+		writel(val & ~BIT(0), pfdev->sched_reg + SCHED_CTRL1);
+
+		/* Enable power control bits 0,1 */
+		val = readl(pfdev->subctrl_reg + SUBCTRL_PWR_CTRL);
+		writel(val | BIT(0) | BIT(1), pfdev->subctrl_reg + SUBCTRL_PWR_CTRL);
+	}
+
+	return 0;
+}
+
+static const struct panfrost_compatible malit6xx_data = {
+	.num_supplies = ARRAY_SIZE(default_supplies) - 1,
+	.supply_names = default_supplies,
+	.num_pm_domains = 1,
+	.vendor_init = panfrost_malit6xx_init,
+	.no_clock = true,
+};
+
 static const struct panfrost_compatible allwinner_h616_data = {
 	.num_supplies = ARRAY_SIZE(default_supplies) - 1,
 	.supply_names = default_supplies,
@@ -1052,6 +1131,7 @@ static const struct panfrost_compatible mediatek_mt8370_data = {
 
 static const struct of_device_id dt_match[] = {
 	/* Set first to probe before the generic compatibles */
+	{ .compatible = "arm,malit6xx", .data = &malit6xx_data, },
 	{ .compatible = "amlogic,meson-gxm-mali",
 	  .data = &amlogic_data, },
 	{ .compatible = "amlogic,meson-g12a-mali",
