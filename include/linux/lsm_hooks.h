@@ -141,6 +141,7 @@ struct lsm_blob_sizes {
 
 extern void security_add_hooks(struct security_hook_list *hooks, int count,
 			       const struct lsm_id *lsmid);
+extern void security_delete_hooks(struct security_hook_list *hooks, int count);
 
 #define LSM_FLAG_LEGACY_MAJOR	BIT(0)
 #define LSM_FLAG_EXCLUSIVE	BIT(1)
