@@ -42,6 +42,12 @@ config PCI_SYSCALL
 
 source "drivers/pci/pcie/Kconfig"
 
+config PCIE_RC_SR
+	tristate "Ascend PCIe root-complex driver"
+	depends on OF && PCI_HOST_COMMON && PCI_MSI
+	help
+	  Build the Ascend 310B PCIe root-complex driver.
+
 config PCI_MSI
 	bool "Message Signaled Interrupts (MSI and MSI-X)"
 	select GENERIC_MSI_IRQ
